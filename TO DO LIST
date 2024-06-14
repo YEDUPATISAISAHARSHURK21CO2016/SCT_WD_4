@@ -1,0 +1,194 @@
+from flask import Flask, render_template_string, request, redirect, url_for
+from datetime import datetime
+
+app = Flask(__name__)
+
+# In-memory storage for tasks
+tasks = []
+
+# HTML template for index page with Bootstrap and live background
+index_html = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>To-Do App</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body, html {
+            height: 100%;
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+        .bg {
+            /* The image used */
+            background: linear-gradient(45deg, #ff9a9e 0%, #fecfef 100%);
+            background-size: 400% 400%;
+            animation: gradient 15s ease infinite;
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+        @keyframes gradient {
+            0% {background-position: 0% 50%;}
+            50% {background-position: 100% 50%;}
+            100% {background-position: 0% 50%;}
+        }
+        .container {
+            position: relative;
+            z-index: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="bg"></div>
+    <div class="container">
+        <h1 class="my-4 text-center text-white">To-Do List</h1>
+        <form action="/add" method="POST" class="mb-4">
+            <div class="form-row">
+                <div class="col">
+                    <input type="text" name="task_name" class="form-control" placeholder="Task Name" required>
+                </div>
+                <div class="col">
+                    <input type="text" name="task_list" class="form-control" placeholder="List Name" required>
+                </div>
+                <div class="col">
+                    <input type="datetime-local" name="task_datetime" class="form-control" required>
+                </div>
+                <div class="col">
+                    <button type="submit" class="btn btn-primary btn-block">Add Task</button>
+                </div>
+            </div>
+        </form>
+        <ul class="list-group">
+            {% for task in tasks %}
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>{{ task.name }}</strong> in <em>{{ task.list }}</em> 
+                    (due: {{ task.datetime.strftime('%Y-%m-%d %H:%M') }})
+                </div>
+                <div>
+                    {% if task.completed %}
+                        <span class="badge badge-success">Completed</span>
+                    {% else %}
+                        <a href="/complete/{{ loop.index0 }}" class="btn btn-success btn-sm">Mark as Completed</a>
+                        <a href="/edit/{{ loop.index0 }}" class="btn btn-warning btn-sm">Edit</a>
+                    {% endif %}
+                    <a href="/delete/{{ loop.index0 }}" class="btn btn-danger btn-sm">Delete</a>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+</body>
+</html>
+'''
+
+# HTML template for edit page with Bootstrap and live background
+edit_html = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Task</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body, html {
+            height: 100%;
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+        .bg {
+            background: linear-gradient(45deg, #ff9a9e 0%, #fecfef 100%);
+            background-size: 400% 400%;
+            animation: gradient 15s ease infinite;
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+        @keyframes gradient {
+            0% {background-position: 0% 50%;}
+            50% {background-position: 100% 50%;}
+            100% {background-position: 0% 50%;}
+        }
+        .container {
+            position: relative;
+            z-index: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="bg"></div>
+    <div class="container">
+        <h1 class="my-4 text-center text-white">Edit Task</h1>
+        <form action="/edit/{{ task_id }}" method="POST" class="mb-4">
+            <div class="form-group">
+                <label for="task_name" class="text-white">Task Name</label>
+                <input type="text" name="task_name" class="form-control" id="task_name" value="{{ task.name }}" required>
+            </div>
+            <div class="form-group">
+                <label for="task_list" class="text-white">List Name</label>
+                <input type="text" name="task_list" class="form-control" id="task_list" value="{{ task.list }}" required>
+            </div>
+            <div class="form-group">
+                <label for="task_datetime" class="text-white">Date and Time</label>
+                <input type="datetime-local" name="task_datetime" class="form-control" id="task_datetime" value="{{ task.datetime.strftime('%Y-%m-%dT%H:%M') }}" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+            <a href="/" class="btn btn-secondary">Back to To-Do List</a>
+        </form>
+    </div>
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+</body>
+</html>
+'''
+
+@app.route('/')
+def index():
+    return render_template_string(index_html, tasks=tasks)
+
+@app.route('/add', methods=['POST'])
+def add_task():
+    task_name = request.form['task_name']
+    task_list = request.form['task_list']
+    task_datetime = request.form['task_datetime']
+    
+    task = {
+        'name': task_name,
+        'list': task_list,
+        'datetime': datetime.strptime(task_datetime, '%Y-%m-%dT%H:%M'),
+        'completed': False
+    }
+    tasks.append(task)
+    return redirect(url_for('index'))
+
+@app.route('/complete/<int:task_id>')
+def complete_task(task_id):
+    tasks[task_id]['completed'] = True
+    return redirect(url_for('index'))
+
+@app.route('/edit/<int:task_id>', methods=['GET', 'POST'])
+def edit_task(task_id):
+    if request.method == 'POST':
+        tasks[task_id]['name'] = request.form['task_name']
+        tasks[task_id]['list'] = request.form['task_list']
+        tasks[task_id]['datetime'] = datetime.strptime(request.form['task_datetime'], '%Y-%m-%dT%H:%M')
+        return redirect(url_for('index'))
+    return render_template_string(edit_html, task=tasks[task_id], task_id=task_id)
+
+@app.route('/delete/<int:task_id>')
+def delete_task(task_id):
+    del tasks[task_id]
+    return redirect(url_for('index'))
+
+if __name__ == '__main__':
+    app.run(debug=True)
